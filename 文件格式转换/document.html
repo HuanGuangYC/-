@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>文档转换</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: { extend: { colors: { primary: '#165DFF' } } }
+    }
+  </script>
+  <style>
+    .btn { @apply px-4 py-2 rounded-lg font-medium transition inline-flex items-center justify-center gap-2; }
+    .btn-primary { @apply btn bg-primary text-white hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed; }
+    .btn-ghost { @apply btn bg-slate-100 text-slate-700 hover:bg-slate-200; }
+    .dropzone { @apply border-2 border-dashed border-slate-300 rounded-2xl p-8 text-center bg-slate-50 transition; }
+    .dropzone.active { border-color: #165DFF; background: #eff6ff; }
+    .card { @apply bg-white rounded-2xl shadow-sm border border-slate-100; }
+  </style>
+</head>
+<body class="bg-slate-50 min-h-screen text-slate-800">
+  <header class="bg-white border-b shadow-sm">
+    <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between gap-3">
+      <a href="index.html" class="text-blue-600 hover:underline">
+        <i class="fa fa-arrow-left mr-1"></i> 返回首页
+      </a>
+      <div class="text-center">
+        <h1 class="font-bold text-lg">文档格式转换</h1>
+        <p class="text-sm text-slate-500">TXT / MD / CSV 可前端处理，Office / PDF 预留后端接口</p>
+      </div>
+      <span class="text-sm text-slate-500">Document Page</span>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-4 py-6">
+    <div class="grid lg:grid-cols-[1.2fr_0.8fr] gap-6">
+      <section class="space-y-6">
+        <div class="card p-5">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="font-semibold text-lg"><i class="fa fa-cloud-upload mr-2 text-primary"></i>添加文件</h2>
+            <button id="clearBtn" class="btn-ghost"><i class="fa fa-trash"></i> 清空列表</button>
+          </div>
+
+          <div id="dropZone" class="dropzone">
+            <input id="fileInput" type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.csv" class="hidden">
+            <i class="fa fa-upload text-4xl text-slate-400 mb-3"></i>
+            <p class="text-lg font-medium">拖拽文档到这里，或点击选择</p>
+            <p class="text-sm text-slate-500 mt-1">支持批量添加，TXT / MD / CSV 可直接转换</p>
+            <div class="mt-5">
+              <button id="chooseBtn" class="btn-primary"><i class="fa fa-folder-open"></i> 选择文档</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card p-5">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="font-semibold text-lg"><i class="fa fa-list mr-2 text-primary"></i>任务列表</h2>
+            <span id="countTag" class="text-sm text-slate-500">0 个文件</span>
+          </div>
+          <div id="taskList" class="space-y-3"></div>
+        </div>
+      </section>
+
+      <aside class="space-y-6">
+        <div class="card p-5">
+          <h2 class="font-semibold text-lg mb-4"><i class="fa fa-tasks mr-2 text-primary"></i>任务控制</h2>
+          <div class="flex gap-2">
+            <button id="startBtn" class="btn-primary flex-1"><i class="fa fa-play"></i> 开始</button>
+            <button id="stopBtn" class="btn-ghost flex-1" disabled><i class="fa fa-stop"></i> 停止</button>
+          </div>
+
+          <div class="mt-5">
+            <div class="flex justify-between text-sm text-slate-600 mb-2">
+              <span id="progressText">等待开始</span>
+              <span id="progressPercent">0%</span>
+            </div>
+            <div class="w-full h-3 bg-slate-200 rounded-full overflow-hidden">
+              <div id="progressBar" class="h-full w-0 bg-primary rounded-full transition-all"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card p-5">
+          <h2 class="font-semibold text-lg mb-4"><i class="fa fa-eye mr-2 text-primary"></i>预览</h2>
+          <div id="previewBox" class="text-sm text-slate-500">
+            对 TXT / MD / CSV 文件可点击“预览”。Office / PDF 文件建议接后端解析。
+          </div>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <div id="previewModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 px-4">
+    <div class="bg-white rounded-2xl w-full max-w-3xl max-h-[85vh] overflow-hidden">
+      <div class="flex items-center justify-between px-5 py-4 border-b">
+        <h3 class="font-semibold">内容预览</h3>
+        <button id="closeModal" class="text-slate-500 hover:text-rose-500"><i class="fa fa-times text-xl"></i></button>
+      </div>
+      <div id="modalContent" class="p-5 overflow-auto max-h-[75vh]"></div>
+    </div>
+  </div>
+
+  <script>
+    const state = { tasks: [], converting: false, stop: false }
+    const fileInput = document.getElementById('fileInput')
+    const chooseBtn = document.getElementById('chooseBtn')
+    const clearBtn = document.getElementById('clearBtn')
+    const dropZone = document.getElementById('dropZone')
+    const taskList = document.getElementById('taskList')
+    const countTag = document.getElementById('countTag')
+    const startBtn = document.getElementById('startBtn')
+    const stopBtn = document.getElementById('stopBtn')
+    const progressBar = document.getElementById('progressBar')
+    const progressText = document.getElementById('progressText')
+    const progressPercent = document.getElementById('progressPercent')
+    const previewBox = document.getElementById('previewBox')
+    const previewModal = document.getElementById('previewModal')
+    const closeModal = document.getElementById('closeModal')
+    const modalContent = document.getElementById('modalContent')
+
+    const textExts = ['txt','md','csv']
+    const targetOptions = [
+      { value: 'txt', label: 'TXT' },
+      { value: 'md', label: 'MD' },
+      { value: 'csv', label: 'CSV' },
+      { value: 'pdf', label: 'PDF（需后端）' },
+      { value: 'docx', label: 'Word（需后端）' },
+      { value: 'xlsx', label: 'Excel（需后端）' },
+      { value: 'pptx', label: 'PPT（需后端）' }
+    ]
+
+    function ext(name){ return name.split('.').pop().toLowerCase() }
+    function base(name){ return name.replace(/\.[^.]+$/, '') }
+
+    function addFiles(files){
+      [...files].forEach(file => {
+        const e = ext(file.name)
+        if (!['pdf','doc','docx','xls','xlsx','ppt','pptx','txt','md','csv'].includes(e)) return
+        const task = {
+          id: crypto.randomUUID(),
+          file,
+          target: 'txt',
+          status: 'waiting',
+          progress: 0,
+          outputBlob: null,
+          outputName: '',
+          textContent: ''
+        }
+        if (textExts.includes(e)) {
+          file.text().then(text => {
+            task.textContent = text
+            render()
+          })
+        }
+        state.tasks.push(task)
+      })
+      render()
+    }
+
+    function render(){
+      countTag.textContent = `${state.tasks.length} 个文件`
+      if (!state.tasks.length){
+        taskList.innerHTML = `<div class="text-center py-12 text-slate-400 border border-dashed rounded-2xl">暂无文件</div>`
+        return
+      }
+
+      taskList.innerHTML = state.tasks.map(t => {
+        const e = ext(t.file.name)
+        const targetHtml = targetOptions.map(o => `<option value="${o.value}">${o.label}</option>`).join('')
+        return `
+          <div class="p-4 rounded-2xl border bg-white">
+            <div class="flex items-center justify-between gap-3 mb-3">
+              <div class="min-w-0">
+                <p class="font-medium truncate">${t.file.name}</p>
+                <p class="text-xs text-slate-500">${(t.file.size/1024).toFixed(1)} KB · .${e}</p>
+              </div>
+              <button class="text-slate-400 hover:text-rose-500 remove" data-id="${t.id}"><i class="fa fa-times"></i></button>
+            </div>
+
+            <div class="grid md:grid-cols-[1fr_180px] gap-3 items-center">
+              <div>
+                <label class="text-xs text-slate-500 mb-1 block">输出格式</label>
+                <select class="target w-full border rounded-lg px-3 py-2" data-id="${t.id}">
+                  ${targetHtml}
+                </select>
+              </div>
+              <div class="text-sm">
+                <div class="text-slate-500">状态</div>
+                <div>${t.status === 'done' ? '完成' : t.status === 'error' ? '失败' : t.status === 'running' ? '处理中' : '等待'}</div>
+              </div>
+            </div>
+
+            <div class="mt-3">
+              <div class="h-2 bg-slate-200 rounded-full overflow-hidden">
+                <div class="h-full bg-primary rounded-full" style="width:${t.progress}%"></div>
+              </div>
+              <div class="flex items-center justify-between text-xs text-slate-500 mt-1">
+                <span>${t.progress}%</span>
+                <span>${t.statusMsg || '等待转换'}</span>
+              </div>
+            </div>
+
+            <div class="mt-3 flex flex-wrap gap-2">
+              <button class="btn-ghost preview" data-id="${t.id}" ${textExts.includes(e) ? '' : 'disabled'}><i class="fa fa-eye"></i> 预览</button>
+              <button class="btn-ghost download" data-id="${t.id}" ${t.outputBlob ? '' : 'disabled'}><i class="fa fa-download"></i> 下载</button>
+            </div>
+          </div>
+        `
+      }).join('')
+
+      document.querySelectorAll('.target').forEach(sel => {
+        sel.value = state.tasks.find(x => x.id === sel.dataset.id)?.target || 'txt'
+        sel.onchange = e => {
+          const task = state.tasks.find(x => x.id === e.target.dataset.id)
+          if (task) task.target = e.target.value
+        }
+      })
+
+      document.querySelectorAll('.remove').forEach(btn => {
+        btn.onclick = () => {
+          state.tasks = state.tasks.filter(x => x.id !== btn.dataset.id)
+          render()
+        }
+      })
+
+      document.querySelectorAll('.preview').forEach(btn => {
+        btn.onclick = () => {
+          const t = state.tasks.find(x => x.id === btn.dataset.id)
+          if (!t?.textContent) return
+          modalContent.innerHTML = `<pre class="bg-slate-50 border rounded-xl p-4 whitespace-pre-wrap text-sm max-h-[70vh] overflow-auto">${escapeHtml(t.textContent)}</pre>`
+          previewModal.classList.remove('hidden'); previewModal.classList.add('flex')
+        }
+      })
+
+      document.querySelectorAll('.download').forEach(btn => {
+        btn.onclick = () => {
+          const t = state.tasks.find(x => x.id === btn.dataset.id)
+          if (!t?.outputBlob) return
+          const a = document.createElement('a')
+          a.href = URL.createObjectURL(t.outputBlob)
+          a.download = t.outputName
+          a.click()
+        }
+      })
+    }
+
+    function escapeHtml(s){
+      return s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;')
+    }
+
+    function convertText(file, target){
+      return file.text().then(text => {
+        if (target === 'txt') return new Blob([text], { type: 'text/plain;charset=utf-8' })
+        if (target === 'md') return new Blob([text], { type: 'text/markdown;charset=utf-8' })
+        if (target === 'csv') {
+          const lines = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean)
+          const csv = lines.map(v => `"${v.replaceAll('"', '""')}"`).join('\n')
+          return new Blob([csv], { type: 'text/csv;charset=utf-8' })
+        }
+        throw new Error('当前前端仅支持 TXT / MD / CSV 真实转换')
+      })
+    }
+
+    async function run(){
+      if (!state.tasks.length) return alert('请先添加文档')
+      if (state.converting) return
+      state.converting = true
+      state.stop = false
+      startBtn.disabled = true
+      stopBtn.disabled = false
+
+      let done = 0
+      for (const t of state.tasks){
+        if (state.stop) break
+        t.status = 'running'; t.statusMsg = '转换中'; t.progress = 10; render()
+
+        const src = ext(t.file.name)
+        try{
+          if (textExts.includes(src) && ['txt','md','csv'].includes(t.target)) {
+            const blob = await convertText(t.file, t.target)
+            t.outputBlob = blob
+            t.outputName = `${base(t.file.name)}.${t.target}`
+            t.status = 'done'
+            t.statusMsg = '转换完成'
+            t.progress = 100
+          } else {
+            throw new Error('PDF / Word / Excel / PPT 的转换需要后端服务支持')
+          }
+        }catch(err){
+          t.status = 'error'
+          t.statusMsg = err.message || '转换失败'
+          t.progress = 100
+        }
+
+        done++
+        progressBar.style.width = `${(done/state.tasks.length)*100}%`
+        progressPercent.textContent = `${Math.round((done/state.tasks.length)*100)}%`
+        progressText.textContent = `已完成 ${done}/${state.tasks.length}`
+        render()
+      }
+
+      state.converting = false
+      startBtn.disabled = false
+      stopBtn.disabled = true
+      if (state.stop) progressText.textContent = '已停止'
+    }
+
+    chooseBtn.onclick = () => fileInput.click()
+    fileInput.onchange = e => addFiles(e.target.files)
+    clearBtn.onclick = () => {
+      state.tasks = []
+      render()
+      progressBar.style.width = '0%'
+      progressText.textContent = '已清空'
+      progressPercent.textContent = '0%'
+    }
+    startBtn.onclick = run
+    stopBtn.onclick = () => { state.stop = true; stopBtn.disabled = true; progressText.textContent = '正在停止...' }
+    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('active') })
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('active'))
+    dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('active'); addFiles(e.dataTransfer.files) })
+    dropZone.addEventListener('click', () => fileInput.click())
+    closeModal.onclick = () => { previewModal.classList.add('hidden'); previewModal.classList.remove('flex') }
+    previewModal.onclick = e => { if (e.target === previewModal) { previewModal.classList.add('hidden'); previewModal.classList.remove('flex') } }
+    render()
+  </script>
+</body>
+</html>
